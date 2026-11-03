@@ -368,20 +368,33 @@ function route(){const h=location.hash.slice(1),doc=h==="about"||h==="terms";
   document.title=h==="about"?"About | Pranala ATLAS":h==="terms"?"Terms of Usage | Pranala ATLAS":"Pranala ATLAS";
   if(doc)window.scrollTo(0,0)}
 addEventListener("hashchange",route);route();
-if($("mfetch"))$("mfetch").addEventListener("click",async()=>{
+let lastAuto="";
+async function getMetar(code){
+  const tries=["/api/metar?ids="+code,"https://aviationweather.gov/api/data/metar?ids="+code+"&format=raw&hours=3"];
+  let err="";
+  for(const u of tries){
+    const c=new AbortController(),t=setTimeout(()=>c.abort(),10000);
+    try{
+      const r=await fetch(u,{signal:c.signal});
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      return u.startsWith("/api")?((await r.json()).metar||"").trim():(await r.text()).trim().split("\n")[0].trim();
+    }catch(e){err=e.name==="AbortError"?"timeout":e.message}finally{clearTimeout(t)}
+  }
+  throw new Error(err);
+}
+async function doFetch(){
   const code=$("apt").value.trim().toUpperCase(),msg=$("metarmsg"),b=$("mfetch");
   if(!/^[A-Z]{4}$/.test(code)){msg.textContent="Select an airport first (4-letter ICAO code).";return}
-  msg.textContent="Fetching METAR "+code+"...";b.disabled=true;
-  const c=new AbortController(),t=setTimeout(()=>c.abort(),10000);
+  msg.textContent="Fetching METAR "+code+"...";if(b)b.disabled=true;
   try{
-    const r=await fetch("https://aviationweather.gov/api/data/metar?ids="+code+"&format=raw&hours=3",{signal:c.signal});
-    if(!r.ok)throw new Error("HTTP "+r.status);
-    const line=(await r.text()).trim().split("\n")[0].trim();
+    const line=await getMetar(code);
     if(!line){msg.textContent="No METAR for "+code+" in the last 3 hours. Paste one manually.";return}
     $("metar").value=line;parseMetar();
-  }catch(e){msg.textContent="Could not fetch METAR ("+(e.name==="AbortError"?"timeout":e.message)+"). Paste one manually."}
-  finally{clearTimeout(t);b.disabled=false}
-});
+  }catch(e){msg.textContent="Could not fetch METAR ("+e.message+"). Paste one manually."}
+  finally{if(b)b.disabled=false}
+}
+if($("mfetch"))$("mfetch").addEventListener("click",doFetch);
+$("apt").addEventListener("input",()=>{const q=$("apt").value.trim().toUpperCase();if(MAP.has(q)&&q!==lastAuto){lastAuto=q;doFetch()}});
 load();render();
 
 </script>
